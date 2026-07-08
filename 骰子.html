@@ -1,0 +1,523 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>十二面骰子 · 十二地支</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    min-height: 100vh;
+    background: radial-gradient(ellipse at center, #f5f2ee 0%, #e8e0d4 100%);
+    font-family: 'Microsoft YaHei', 'PingFang SC', 'SimHei', sans-serif;
+    overflow: hidden;
+    user-select: none;
+  }
+  body::before {
+    content: '';
+    position: fixed; inset: 0;
+    background-image:
+      radial-gradient(1px 1px at 10% 20%, rgba(0,0,0,.08), transparent),
+      radial-gradient(1px 1px at 30% 60%, rgba(0,0,0,.05), transparent),
+      radial-gradient(1px 1px at 55% 10%, rgba(0,0,0,.06), transparent),
+      radial-gradient(1px 1px at 70% 80%, rgba(0,0,0,.04), transparent),
+      radial-gradient(1.5px 1.5px at 20% 90%, rgba(0,0,0,.08), transparent),
+      radial-gradient(1.5px 1.5px at 85% 30%, rgba(0,0,0,.06), transparent),
+      radial-gradient(1px 1px at 45% 45%, rgba(0,0,0,.05), transparent),
+      radial-gradient(1px 1px at 90% 55%, rgba(0,0,0,.07), transparent);
+    pointer-events: none; z-index: 0;
+  }
+  .title {
+    position: fixed; top: 6%; left: 50%; transform: translateX(-50%);
+    z-index: 2; color: #5a4a3a; font-size: 28px; font-weight: bold;
+    letter-spacing: 8px; text-shadow: 0 2px 8px rgba(0,0,0,.08);
+    text-align: center;
+  }
+  .title small {
+    display: block; font-size: 14px; font-weight: normal; letter-spacing: 2px;
+    opacity: .55; margin-top: 4px;
+  }
+  .btn-area {
+    position: fixed; bottom: 7%; left: 50%; transform: translateX(-50%);
+    z-index: 2; display: flex; flex-direction: column; align-items: center; gap: 14px;
+  }
+  .shake-btn {
+    padding: 14px 56px; font-size: 22px; font-weight: bold; color: #fff;
+    background: linear-gradient(135deg, #5a4a3a, #7a6a5a);
+    border: none; border-radius: 8px; cursor: pointer;
+    letter-spacing: 6px; transition: all .25s;
+    box-shadow: 0 4px 24px rgba(0,0,0,.12); position: relative; overflow: hidden;
+  }
+  .shake-btn::before {
+    content: ''; position: absolute; inset: 0;
+    background: linear-gradient(135deg, transparent 40%, rgba(255,255,255,.08));
+    pointer-events: none;
+  }
+  .shake-btn:hover {
+    background: linear-gradient(135deg, #6a5a4a, #8a7a6a);
+    box-shadow: 0 4px 36px rgba(0,0,0,.2);
+    transform: translateY(-2px);
+  }
+  .shake-btn:active { transform: translateY(0); }
+  .shake-btn:disabled {
+    opacity: .5; cursor: not-allowed; transform: none !important; box-shadow: none;
+  }
+  .result-box {
+    display: flex; align-items: center; justify-content: center; gap: 10px; min-height: 44px;
+  }
+  .result-label { color: rgba(0,0,0,.35); font-size: 15px; letter-spacing: 2px; }
+  .result-char {
+    font-size: 34px; font-weight: bold; color: #5a4a3a;
+    text-shadow: none; opacity: 0; transition: opacity .4s;
+  }
+  .result-char.show { opacity: 1; animation: popIn .45s ease-out; }
+  @keyframes popIn {
+    0%   { transform: scale(0); opacity: 0; }
+    60%  { transform: scale(1.25); }
+    100% { transform: scale(1); opacity: 1; }
+  }
+  canvas { display: block; }
+</style>
+</head>
+<body>
+
+<div class="title">
+  十二面骰子
+  <small>⚡ 点击摇一摇 · 卜问天机 ⚡</small>
+</div>
+
+<div class="btn-area">
+  <button class="shake-btn" id="shakeBtn">摇一摇</button>
+  <div class="result-box">
+    <span class="result-label">☰ 卜得：</span>
+    <span class="result-char" id="resultChar"></span>
+  </div>
+</div>
+
+<script type="importmap">{
+  "imports": { "three": "https://unpkg.com/three@0.160.0/build/three.module.js" }
+}</script>
+<script type="module">
+import * as THREE from 'three';
+
+const LABELS = ['子','丑','寅','卯','辰','巳','午','未','申','酉','戌','亥'];
+
+// ── 场景 ──
+const scene = new THREE.Scene();
+scene.background = new THREE.Color('#f5f2ee');
+
+const camera = new THREE.PerspectiveCamera(40, window.innerWidth / window.innerHeight, 0.1, 20);
+camera.position.set(0, 0, 4.5);
+camera.lookAt(0, 0, 0);
+updateCamera();
+
+// 根据屏幕比例自适应相机距离，确保骰子不超出视野
+function updateCamera() {
+  const aspect = window.innerWidth / window.innerHeight;
+  // visibleWidth = 2 * z * tan(fov/2) * aspect，需 ≥ DICE_RADIUS * 2.8
+  const minZ = (1 * 2.8) / (2 * Math.tan(40 * Math.PI / 360) * Math.max(aspect, 0.35));
+  camera.position.z = Math.max(4.5, minZ);
+  camera.aspect = aspect;
+  camera.updateProjectionMatrix();
+}
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.toneMapping = THREE.NeutralToneMapping;
+renderer.toneMappingExposure = 1.0;
+document.body.prepend(renderer.domElement);
+
+// ── 灯光 ──
+const ambient = new THREE.AmbientLight(0xffffff, 0.7);
+scene.add(ambient);
+const mainLight = new THREE.DirectionalLight(0xffffff, 0.6);
+mainLight.position.set(4, 6, 5);
+scene.add(mainLight);
+const fillLight = new THREE.DirectionalLight(0xffffff, 0.3);
+fillLight.position.set(-3, 1, -2);
+scene.add(fillLight);
+
+// ── 背景纹理 ──
+const dotsGeo = new THREE.BufferGeometry();
+const dotCount = 80;
+const dotPos = new Float32Array(dotCount * 3);
+for (let i = 0; i < dotCount * 3; i++) dotPos[i] = (Math.random() - 0.5) * 50;
+dotsGeo.setAttribute('position', new THREE.BufferAttribute(dotPos, 3));
+const dotMat = new THREE.PointsMaterial({ color: 0x000000, size: 0.015, transparent: true, opacity: 0.04 });
+scene.add(new THREE.Points(dotsGeo, dotMat));
+
+// ── 十二面体 ──
+const DICE_RADIUS = 1;
+const geo = new THREE.DodecahedronGeometry(DICE_RADIUS, 0);
+const pos = geo.attributes.position;
+
+// 提取 12 面中心 + 法线
+// 注意：DodecahedronGeometry 每个五边形按"扇形"从同一顶点三角化，
+// 每组 9 个顶点里第 0/3/6 号是同一个角顶点，直接取样会得到角而非面心。
+// 因此需先对该面 9 个顶点去重，取 5 个独立顶点的均值 = 真正的面心。
+const faceCenters = [];
+const faceNormals = [];
+for (let i = 0; i < pos.count; i += 9) {
+  const verts = [];
+  for (let j = 0; j < 9; j++) {
+    const v = new THREE.Vector3(pos.getX(i + j), pos.getY(i + j), pos.getZ(i + j));
+    if (!verts.some(u => u.distanceTo(v) < 1e-4)) verts.push(v);
+  }
+  const center = new THREE.Vector3();
+  verts.forEach(v => center.add(v));
+  center.multiplyScalar(1 / verts.length);
+  faceCenters.push(center);
+  faceNormals.push(center.clone().normalize());  // 正十二面体以原点为心，面心方向即面法线
+}
+
+// 每个面的"朝上"方向（面内指向第一个顶点的方向，投影到面平面）
+const faceUpDir = [];
+for (let f = 0; f < 12; f++) {
+  const v = new THREE.Vector3(pos.getX(f*9), pos.getY(f*9), pos.getZ(f*9));
+  const toVert = v.clone().sub(faceCenters[f]);
+  const proj = toVert.clone().sub(faceNormals[f].clone().multiplyScalar(toVert.dot(faceNormals[f])));
+  faceUpDir.push(proj.normalize());
+}
+
+// 完全约束的对齐四元数：法线→+Z，朝上→+Y
+function alignQuat(faceIdx) {
+  const z = faceNormals[faceIdx];   // 面法线
+  const y = faceUpDir[faceIdx];     // 面朝上方向（切向）
+  const x = new THREE.Vector3().crossVectors(y, z).normalize();  // 面右方向
+  // 矩阵列 = [x, y, z] => 将 (0,0,1) → z (faceNormal)
+  // 取其逆 => faceNormal → (0,0,1), faceUp → (0,1,0)
+  const m = new THREE.Matrix4().set(
+    x.x, y.x, z.x, 0,
+    x.y, y.y, z.y, 0,
+    x.z, y.z, z.z, 0,
+    0, 0, 0, 1
+  );
+  const q = new THREE.Quaternion().setFromRotationMatrix(m);
+  return q.invert();
+}
+
+// 纹理生成
+function createTexture(char) {
+  const size = 512;
+  const c = document.createElement('canvas');
+  c.width = c.height = size;
+  const ctx = c.getContext('2d');
+  const cx = size/2, cy = size/2, r = size * 0.42;
+
+  // 统一米白底 — 整个画布同色，UV 边缘即使偏移也不露色
+  const bg = '#f5f2ee';
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, size, size);
+
+  // 五边形区域（与底色相同，仅作为裁剪边界）
+  ctx.save();
+  ctx.beginPath();
+  for (let i = 0; i < 5; i++) {
+    const a = -Math.PI/2 + (2 * Math.PI * i) / 5;
+    const px = cx + r * Math.cos(a), py = cy + r * Math.sin(a);
+    i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
+  }
+  ctx.closePath();
+  ctx.fillStyle = bg;
+  ctx.fill();
+
+  // 字阴影
+  ctx.shadowColor = 'rgba(0,0,0,0.18)';
+  ctx.shadowBlur = 3;
+  ctx.shadowOffsetX = 1;
+  ctx.shadowOffsetY = 1;
+
+  // 字
+  ctx.fillStyle = '#333333';
+  ctx.font = `bold ${size * 0.35}px "Microsoft YaHei", "PingFang SC", "SimHei", sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(char, cx, cy + 4);
+  ctx.restore();
+
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 4;
+  return tex;
+}
+
+// 12 个材质 + UV 分组
+const materials = LABELS.map(ch => new THREE.MeshStandardMaterial({
+  map: createTexture(ch),
+  metalness: 0.0,
+  roughness: 0.8,
+  side: THREE.FrontSide,
+}));
+
+// 每组 9 个顶点 (3 个三角形 × 3)
+const perFace = 9;
+for (let i = 0; i < 12; i++) {
+  geo.addGroup(i * perFace, perFace, i);
+}
+
+const mesh = new THREE.Mesh(geo, materials);
+// 清理默认 UV，让纹理完整显示（不扭曲）
+// Three.js 的 DodecahedronGeometry 默认 UV 是极坐标投影，不适合贴字
+// 改为每个面使用完整纹理 (UV 映射到整个面)
+{
+  const uvs = geo.attributes.uv;
+  const array = uvs.array;
+  // 每个面 9 个顶点，映射到正则五边形 UV
+  const pentUV = [];
+  for (let k = 0; k < 5; k++) {
+    const a = -Math.PI/2 + (2 * Math.PI * k) / 5;
+    pentUV.push({ u: 0.5 + 0.45 * Math.cos(a), v: 0.5 + 0.45 * Math.sin(a) });
+  }
+
+  for (let f = 0; f < 12; f++) {
+    // 获取该面 5 个独立顶点 (去重)
+    const verts = [];
+    for (let j = 0; j < 9; j++) {
+      const idx = f * 9 + j;
+      const v = new THREE.Vector3(pos.getX(idx), pos.getY(idx), pos.getZ(idx));
+      let dup = false;
+      for (const u of verts) { if (v.distanceTo(u) < 0.001) { dup = true; break; } }
+      if (!dup) verts.push(v);
+    }
+    // 投影到 2D 并排序
+    const fc = faceCenters[f];
+    const fn = faceNormals[f];
+    const up = Math.abs(fn.y) < 0.9 ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(1, 0, 0);
+    const tx = new THREE.Vector3().crossVectors(fn, up).normalize();
+    const ty = new THREE.Vector3().crossVectors(fn, tx).normalize();
+    const proj = verts.map(v => {
+      const rel = v.clone().sub(fc);
+      return { x: rel.dot(tx), y: rel.dot(ty) };
+    });
+    const order = verts.map((_, i) => i).sort((a, b) => Math.atan2(proj[a].y, proj[a].x) - Math.atan2(proj[b].y, proj[b].x));
+
+    for (let j = 0; j < 9; j++) {
+      const v = new THREE.Vector3(pos.getX(f*9+j), pos.getY(f*9+j), pos.getZ(f*9+j));
+      let vi = -1;
+      for (let m = 0; m < 5; m++) { if (v.distanceTo(verts[m]) < 0.001) { vi = m; break; } }
+      if (vi >= 0) {
+        const si = order.indexOf(vi);
+        array[(f*9+j)*2]   = pentUV[si].u;
+        array[(f*9+j)*2+1] = pentUV[si].v;
+      } else {
+        array[(f*9+j)*2]   = 0.5;
+        array[(f*9+j)*2+1] = 0.5;
+      }
+    }
+  }
+  uvs.needsUpdate = true;
+}
+geo.computeVertexNormals();
+
+scene.add(mesh);
+
+// 微弱的阴影光晕
+const glowGeo = new THREE.SphereGeometry(DICE_RADIUS * 1.35, 32, 32);
+const glowMat = new THREE.MeshBasicMaterial({
+  color: 0x000000,
+  transparent: true,
+  opacity: 0.02,
+  side: THREE.BackSide,
+});
+const glowMesh = new THREE.Mesh(glowGeo, glowMat);
+// ── DOM 引用 ──
+const resultChar = document.getElementById('resultChar');
+const shakeBtn = document.getElementById('shakeBtn');
+
+scene.add(glowMesh);
+
+// ── 初始对齐 ──
+(function initAlign() {
+  let bestI = 0, bestDot = -2;
+  const dir = new THREE.Vector3(0, 0, 1);
+  for (let i = 0; i < 12; i++) {
+    const d = faceNormals[i].dot(dir);
+    if (d > bestDot) { bestDot = d; bestI = i; }
+  }
+  const q = alignQuat(bestI);
+  mesh.quaternion.copy(q);
+  glowMesh.quaternion.copy(q);
+  resultChar.textContent = LABELS[bestI];
+  resultChar.classList.add('show');
+})();
+
+// ── 动画 ──
+let running = false;
+let animId = null;
+let renderLoopId = null;
+
+function shake() {
+  if (running) return;
+  running = true;
+  shakeBtn.disabled = true;
+  resultChar.classList.remove('show');
+  resultChar.textContent = '';
+
+  // 目标面
+  const targetIdx = Math.floor(Math.random() * 12);
+  const targetQuat = alignQuat(targetIdx);
+
+  const startQuat = mesh.quaternion.clone();
+  const spinAxis = new THREE.Vector3(
+    Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5
+  ).normalize();
+  // 整数圈：结束自旋 = 单位四元数（视觉归零），姿态直接落在目标面，无需回拽/snap
+  const totalSpin = (3 + (Math.random() * 3 | 0)) * Math.PI * 2; // 3~5 整圈
+
+  // 暂停循环渲染，让动画帧全权控制
+  if (renderLoopId) cancelAnimationFrame(renderLoopId);
+
+  const DUR = 2200;
+  const t0 = performance.now();
+
+  // ── 弹跳路径（屏幕像素 → 3D 世界坐标）──
+  const vfov = camera.fov * Math.PI / 180;
+  const visH = 2 * Math.tan(vfov / 2) * Math.abs(camera.position.z);
+  const px2world = visH / window.innerHeight;
+
+  const WW = window.innerWidth, WH = window.innerHeight;
+  // 围绕中心小幅游走：所有点限制在半径内、相邻点限距，避免大跨度瞬移
+  const radius = Math.min(WW, WH) * 0.3 * px2world;   // 游走半径（世界坐标）
+  const maxStep = radius * 0.7;                        // 相邻点最大距离
+  const pts = [{ x: 0, y: 0 }, { x: 0, y: 0 }];
+  let prev = { x: 0, y: 0 };
+  const count = 5 + (Math.random() * 3 | 0);
+  for (let i = 0; i < count; i++) {
+    const ang = Math.random() * Math.PI * 2;
+    const step = maxStep * (0.5 + Math.random() * 0.5);
+    let nx = prev.x + Math.cos(ang) * step;
+    let ny = prev.y + Math.sin(ang) * step;
+    const r = Math.hypot(nx, ny);
+    if (r > radius) { nx = nx / r * radius; ny = ny / r * radius; }  // 越界则拉回半径内
+    pts.push({ x: nx, y: ny });
+    prev = { x: nx, y: ny };
+  }
+  // 落点 = 游走终点（重复两个控制点让 Catmull-Rom 平滑收敛、速度归零）
+  pts.push({ x: prev.x, y: prev.y }, { x: prev.x, y: prev.y });
+
+  function lerpPt(a, b, s) { return { x: a.x + (b.x - a.x) * s, y: a.y + (b.y - a.y) * s }; }
+  // 向心式 Catmull-Rom（α=0.5）：按点间距离参数化（Barry-Goldman 递推），
+  // 抑制过冲与尖角自相交，轨迹更贴合控制点。端点 t=0→p1, t=1→p2 精确。
+  function cr(p0, p1, p2, p3, t) {
+    const A = 0.5;
+    const d01 = Math.max(Math.pow(Math.hypot(p1.x - p0.x, p1.y - p0.y), A), 1e-6);
+    const d12 = Math.max(Math.pow(Math.hypot(p2.x - p1.x, p2.y - p1.y), A), 1e-6);
+    const d23 = Math.max(Math.pow(Math.hypot(p3.x - p2.x, p3.y - p2.y), A), 1e-6);
+    const t1 = d01, t2 = d01 + d12, t3 = d01 + d12 + d23;  // t0 = 0
+    const tt = t1 + (t2 - t1) * t;                          // 局部 t∈[0,1] → 参数区间 [t1,t2]
+    const A1 = lerpPt(p0, p1, tt / t1);                     // (tt - t0)/(t1 - t0)
+    const A2 = lerpPt(p1, p2, (tt - t1) / (t2 - t1));
+    const A3 = lerpPt(p2, p3, (tt - t2) / (t3 - t2));
+    const B1 = lerpPt(A1, A2, tt / t2);                     // (tt - t0)/(t2 - t0)
+    const B2 = lerpPt(A2, A3, (tt - t1) / (t3 - t1));
+    return lerpPt(B1, B2, (tt - t1) / (t2 - t1));
+  }
+  function sample(t) {
+    const PC = pts.length, segs = PC - 3;
+    const raw = Math.max(0, t) * segs;
+    const seg = Math.min(Math.floor(raw), segs - 1);
+    const f = Math.min(Math.max(0, raw - seg), 1);
+    return cr(pts[seg], pts[seg+1], pts[seg+2], pts[Math.min(PC-1, seg+3)], f);
+  }
+
+  function ease(t) {
+    const c1 = 1.5, c3 = c1 + 1;
+    return 1 + c3 * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2);
+  }
+  function mixEase(t) {
+    if (t < 0.65) {
+      const p = t / 0.65;
+      return 0.72 * (p < 0.5 ? 2*p*p : -1 + (4-2*p)*p);
+    }
+    const p = (t - 0.65) / 0.35;
+    return 0.72 + 0.28 * ease(p);
+  }
+
+  function frame(now) {
+    const el = Math.min((now - t0) / DUR, 1);
+    const et = mixEase(el);
+
+    // 位置 (3D 弹跳，不移动背景)
+    const pos = sample(et);
+    mesh.position.set(pos.x, pos.y, 0);
+    glowMesh.position.copy(mesh.position);
+
+    // ── 旋转：对齐 + 自旋分离 ──
+    // 对齐：随真实进度推进、集中在后段完成，单调无过冲
+    const alignT = Math.pow(el, 2.5);
+    const aq = new THREE.Quaternion().slerpQuaternions(startQuat, targetQuat, alignT);
+    // 自旋：基于真实进度 el 做单调减速（easeOutCubic），从满速持续放缓到末尾归零，
+    // 不会出现"减速→反向加快"的波动；整数圈保证结束时姿态=目标面。
+    const spinProg = 1 - Math.pow(1 - el, 3);
+    const sq = new THREE.Quaternion().setFromAxisAngle(spinAxis, totalSpin * spinProg);
+    // 先对齐再自旋 → 结束时自旋归零（整数圈），对齐到位
+    mesh.quaternion.copy(sq).multiply(aq);
+    glowMesh.quaternion.copy(mesh.quaternion);
+
+    if (el < 1) {
+      animId = requestAnimationFrame(frame);
+    } else {
+      // 滚动结束：自旋已归零、对齐已到位，姿态精确锁定为目标面，不再二次旋转。
+      // 先在落点停留片刻（"停在那个面就不动了"），再纯平移到屏幕中间展示（全程不旋转）。
+      mesh.quaternion.copy(targetQuat);
+      glowMesh.quaternion.copy(targetQuat);
+      const fromPos = mesh.position.clone();
+      const ZERO = new THREE.Vector3(0, 0, 0);
+      const st0 = performance.now();
+      const HOLD = 140, MOVE = 480;
+      function settle(now) {
+        const dt = now - st0;
+        if (dt < HOLD) {
+          // 原地停留：姿态与位置都不变
+        } else {
+          const p = Math.min((dt - HOLD) / MOVE, 1);
+          const ep = 1 - Math.pow(1 - p, 3);  // easeOutCubic：起步慢，自然过渡到平移
+          mesh.position.lerpVectors(fromPos, ZERO, ep);
+          glowMesh.position.copy(mesh.position);
+          if (p >= 1) {
+            mesh.position.copy(ZERO);
+            glowMesh.position.copy(ZERO);
+            renderer.render(scene, camera);
+            done(targetIdx);
+            return;
+          }
+        }
+        renderer.render(scene, camera);
+        animId = requestAnimationFrame(settle);
+      }
+      animId = requestAnimationFrame(settle);
+    }
+    renderer.render(scene, camera);
+  }
+  animId = requestAnimationFrame(frame);
+}
+
+function done(idx) {
+  resultChar.textContent = LABELS[idx];
+  void resultChar.offsetWidth;
+  resultChar.classList.add('show');
+  running = false;
+  shakeBtn.disabled = false;
+  // 重启循环渲染
+  function loop() { renderer.render(scene, camera); renderLoopId = requestAnimationFrame(loop); }
+  renderLoopId = requestAnimationFrame(loop);
+}
+
+shakeBtn.addEventListener('click', shake);
+
+window.addEventListener('resize', () => {
+  updateCamera();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+// 循环渲染
+(function startRenderLoop() {
+  function loop() { renderer.render(scene, camera); renderLoopId = requestAnimationFrame(loop); }
+  renderLoopId = requestAnimationFrame(loop);
+})();
+
+console.log('🎲 十二面骰子已加载');
+</script>
+</body>
+</html>
