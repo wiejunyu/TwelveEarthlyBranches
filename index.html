@@ -83,9 +83,19 @@
     100% { transform: scale(1); opacity: 1; }
   }
   canvas { display: block; }
+  .config-btn {
+    position: fixed; top: 20px; right: 20px; z-index: 3;
+    padding: 8px 16px; font-size: 14px; color: #5a4a3a;
+    background: rgba(255,255,255,.6); border: 1px solid rgba(90,74,58,.2);
+    border-radius: 8px; cursor: pointer; letter-spacing: 2px;
+    text-decoration: none; backdrop-filter: blur(6px); transition: all .25s;
+  }
+  .config-btn:hover { background: rgba(255,255,255,.92); transform: translateY(-1px); }
 </style>
 </head>
 <body>
+
+<a class="config-btn" href="config.html">⚙ 配置</a>
 
 <div class="title">
   十二面骰子
