@@ -71,6 +71,12 @@
     text-shadow: none; opacity: 0; transition: opacity .4s;
   }
   .result-char.show { opacity: 1; animation: popIn .45s ease-out; }
+  .result-info {
+    font-size: 13px; color: rgba(90,74,58,.55); letter-spacing: 1px;
+    opacity: 0; transition: opacity .4s .12s; align-self: center;
+    white-space: nowrap;
+  }
+  .result-info.show { opacity: 1; }
   @keyframes popIn {
     0%   { transform: scale(0); opacity: 0; }
     60%  { transform: scale(1.25); }
@@ -91,6 +97,7 @@
   <div class="result-box">
     <span class="result-label">☰ 卜得：</span>
     <span class="result-char" id="resultChar"></span>
+    <span class="result-info" id="resultInfo"></span>
   </div>
 </div>
 
@@ -100,7 +107,39 @@
 <script type="module">
 import * as THREE from 'three';
 
-const LABELS = ['子','丑','寅','卯','辰','巳','午','未','申','酉','戌','亥'];
+// ── 需求数据：数字 → 地支 / 五行 / 三合局（来源：需求.md 对应表）──
+// 六冲对（相对面，和=13）：1↔12 子午｜2↔11 巳亥｜3↔10 丑未｜4↔9 辰戌｜5↔8 寅申｜6↔7 卯酉
+const FACE_SPEC = {
+  1:  { branch: '子', wuxing: '水', sanhe: '水' },
+  2:  { branch: '巳', wuxing: '火', sanhe: '金' },
+  3:  { branch: '未', wuxing: '土', sanhe: '木' },
+  4:  { branch: '戌', wuxing: '土', sanhe: '火' },
+  5:  { branch: '寅', wuxing: '木', sanhe: '火' },
+  6:  { branch: '卯', wuxing: '木', sanhe: '木' },
+  7:  { branch: '酉', wuxing: '金', sanhe: '金' },
+  8:  { branch: '申', wuxing: '金', sanhe: '水' },
+  9:  { branch: '辰', wuxing: '土', sanhe: '水' },
+  10: { branch: '丑', wuxing: '土', sanhe: '金' },
+  11: { branch: '亥', wuxing: '水', sanhe: '木' },
+  12: { branch: '午', wuxing: '火', sanhe: '火' },
+};
+
+// 五行配色：fill=面底色，text=文字色（依底色明度取强对比色）
+const WUXING = {
+  木: { fill: '#2e8b57', text: '#ffffff' }, // 青绿
+  火: { fill: '#c0392b', text: '#ffffff' }, // 朱红
+  土: { fill: '#cf9f2e', text: '#3a2a00' }, // 土黄
+  金: { fill: '#c4c8ce', text: '#3a3a3a' }, // 银白
+  水: { fill: '#1f3a5f', text: '#ffffff' }, // 深蓝
+};
+
+// 三合局配色：同三合局三面共用描边色，作视觉串联
+const SANHE = {
+  水: { border: '#1e90ff', name: '申子辰·水' }, // 亮蓝
+  火: { border: '#ff4d3d', name: '寅午戌·火' }, // 亮红
+  木: { border: '#3ccf5e', name: '亥卯未·木' }, // 亮绿
+  金: { border: '#e6c34a', name: '巳酉丑·金' }, // 亮金
+};
 
 // ── 场景 ──
 const scene = new THREE.Scene();
@@ -128,13 +167,13 @@ renderer.toneMapping = THREE.NeutralToneMapping;
 renderer.toneMappingExposure = 1.0;
 document.body.prepend(renderer.domElement);
 
-// ── 灯光 ──
-const ambient = new THREE.AmbientLight(0xffffff, 0.7);
+// ── 灯光（提亮环境光，保证深色五行面清晰可辨）──
+const ambient = new THREE.AmbientLight(0xffffff, 0.95);
 scene.add(ambient);
-const mainLight = new THREE.DirectionalLight(0xffffff, 0.6);
+const mainLight = new THREE.DirectionalLight(0xffffff, 0.55);
 mainLight.position.set(4, 6, 5);
 scene.add(mainLight);
-const fillLight = new THREE.DirectionalLight(0xffffff, 0.3);
+const fillLight = new THREE.DirectionalLight(0xffffff, 0.4);
 fillLight.position.set(-3, 1, -2);
 scene.add(fillLight);
 
@@ -180,6 +219,67 @@ for (let f = 0; f < 12; f++) {
   faceUpDir.push(proj.normalize());
 }
 
+// ── 物理面 → 数字(逻辑面)映射：保证「相对面 = 六冲、数字和 = 13」──
+// 正十二面体天然有 6 对相对面，恰好对应 6 对六冲。算法：
+//  ① 取最朝相机的面(+Z) 为「子(1)」，其对面为「午(12)」——满足子午冲与尊位。
+//  ② 子面的 5 个邻居构成「南环」，按绕轴角度排序后赋号 [8,9,10,11,6]；
+//     其各自对面(北环) 自动得到 13-该号，即六冲对，和恒为 13。
+//  ③ 南环顺序选 [8,9,10,11,6]，使水局{1,8,9}与对面火局{12,5,4}各自相邻聚集。
+const opp = [];                       // opp[i] = 面 i 的对面（法线点积最接近 -1）
+for (let i = 0; i < 12; i++) {
+  let bj = -1, bd = 2;
+  for (let j = 0; j < 12; j++) {
+    if (j === i) continue;
+    const d = faceNormals[i].dot(faceNormals[j]);
+    if (d < bd) { bd = d; bj = j; }
+  }
+  opp[i] = bj;
+}
+const faceVerts = [];                 // 每个面的 5 个独立顶点（去重）
+for (let f = 0; f < 12; f++) {
+  const vs = [];
+  for (let j = 0; j < 9; j++) {
+    const v = new THREE.Vector3(pos.getX(f*9+j), pos.getY(f*9+j), pos.getZ(f*9+j));
+    if (!vs.some(u => u.distanceTo(v) < 1e-4)) vs.push(v);
+  }
+  faceVerts.push(vs);
+}
+const adjacent = (a, b) => {          // 共享 ≥2 顶点 = 共边相邻
+  let s = 0;
+  for (const va of faceVerts[a]) for (const vb of faceVerts[b]) if (va.distanceTo(vb) < 1e-4) s++;
+  return s >= 2;
+};
+const neighbors = a => {
+  const r = [];
+  for (let j = 0; j < 12; j++) if (j !== a && adjacent(a, j)) r.push(j);
+  return r;
+};
+
+const numForFace = new Array(12).fill(0);
+// 子(1) = 最朝 +Z 的面；午(12) = 其对面
+let face1 = 0, bestZ = -2;
+for (let i = 0; i < 12; i++) if (faceNormals[i].z > bestZ) { bestZ = faceNormals[i].z; face1 = i; }
+numForFace[face1] = 1;
+numForFace[opp[face1]] = 12;
+// 南环（子面 5 邻居）按绕轴角度排序后赋号，对面自动成六冲
+const southRing = neighbors(face1);
+{
+  const axis = faceNormals[face1];
+  const upRef = Math.abs(axis.y) < 0.9 ? new THREE.Vector3(0,1,0) : new THREE.Vector3(1,0,0);
+  const tx = new THREE.Vector3().crossVectors(axis, upRef).normalize();
+  const ty = new THREE.Vector3().crossVectors(axis, tx).normalize();
+  southRing.sort((a, b) => {
+    const ra = faceCenters[a].clone().sub(faceCenters[face1]);
+    const rb = faceCenters[b].clone().sub(faceCenters[face1]);
+    return Math.atan2(ra.dot(ty), ra.dot(tx)) - Math.atan2(rb.dot(ty), rb.dot(tx));
+  });
+}
+const southNums = [8, 9, 10, 11, 6];  // 顺序保证水/火局相邻聚集
+southRing.forEach((ph, k) => {
+  numForFace[ph] = southNums[k];
+  numForFace[opp[ph]] = 13 - southNums[k];
+});
+
 // 完全约束的对齐四元数：法线→+Z，朝上→+Y
 function alignQuat(faceIdx) {
   const z = faceNormals[faceIdx];   // 面法线
@@ -197,44 +297,45 @@ function alignQuat(faceIdx) {
   return q.invert();
 }
 
-// 纹理生成
-function createTexture(char) {
+// 纹理生成：同面双标（数字主 + 地支辅）+ 五行底色 + 三合描边
+function createTexture({ num, branch, wuxing, sanhe }) {
   const size = 512;
   const c = document.createElement('canvas');
   c.width = c.height = size;
   const ctx = c.getContext('2d');
-  const cx = size/2, cy = size/2, r = size * 0.42;
+  const cx = size / 2, cy = size / 2, r = size * 0.45;
+  const lightText = wuxing.text === '#ffffff';
 
-  // 统一米白底 — 整个画布同色，UV 边缘即使偏移也不露色
-  const bg = '#f5f2ee';
-  ctx.fillStyle = bg;
+  // 整块画布填五行底色 —— UV 边缘即使偏移也不露色
+  ctx.fillStyle = wuxing.fill;
   ctx.fillRect(0, 0, size, size);
 
-  // 五边形区域（与底色相同，仅作为裁剪边界）
-  ctx.save();
+  // 五边形区域（与 UV 映射同构，尖朝上）
   ctx.beginPath();
   for (let i = 0; i < 5; i++) {
-    const a = -Math.PI/2 + (2 * Math.PI * i) / 5;
+    const a = -Math.PI / 2 + (2 * Math.PI * i) / 5;
     const px = cx + r * Math.cos(a), py = cy + r * Math.sin(a);
     i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
   }
   ctx.closePath();
-  ctx.fillStyle = bg;
   ctx.fill();
 
-  // 字阴影
-  ctx.shadowColor = 'rgba(0,0,0,0.18)';
-  ctx.shadowBlur = 3;
+  // 文字阴影（浅字配深影、深字配浅影，增强对比）
+  ctx.shadowColor = lightText ? 'rgba(0,0,0,0.28)' : 'rgba(255,255,255,0.45)';
+  ctx.shadowBlur = 4;
   ctx.shadowOffsetX = 1;
-  ctx.shadowOffsetY = 1;
-
-  // 字
-  ctx.fillStyle = '#333333';
-  ctx.font = `bold ${size * 0.35}px "Microsoft YaHei", "PingFang SC", "SimHei", sans-serif`;
+  ctx.shadowOffsetY = 2;
+  ctx.fillStyle = wuxing.text;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillText(char, cx, cy + 4);
-  ctx.restore();
+
+  // 数字（主标，居中偏上）
+  ctx.font = `bold ${size * 0.30}px "Arial", "Helvetica", sans-serif`;
+  ctx.fillText(String(num), cx, cy - size * 0.07);
+  // 地支（辅标，居中偏下）
+  ctx.font = `bold ${size * 0.17}px "Microsoft YaHei", "PingFang SC", "SimHei", sans-serif`;
+  ctx.fillText(branch, cx, cy + size * 0.19);
+  ctx.shadowColor = 'transparent';
 
   const tex = new THREE.CanvasTexture(c);
   tex.colorSpace = THREE.SRGBColorSpace;
@@ -242,13 +343,23 @@ function createTexture(char) {
   return tex;
 }
 
-// 12 个材质 + UV 分组
-const materials = LABELS.map(ch => new THREE.MeshStandardMaterial({
-  map: createTexture(ch),
-  metalness: 0.0,
-  roughness: 0.8,
-  side: THREE.FrontSide,
-}));
+// 12 个材质（按物理面映射后的数字生成）+ UV 分组
+const materials = [];
+for (let f = 0; f < 12; f++) {
+  const num = numForFace[f];
+  const spec = FACE_SPEC[num];
+  materials.push(new THREE.MeshStandardMaterial({
+    map: createTexture({
+      num,
+      branch: spec.branch,
+      wuxing: WUXING[spec.wuxing],
+      sanhe: SANHE[spec.sanhe],
+    }),
+    metalness: 0.1,
+    roughness: 0.72,
+    side: THREE.FrontSide,
+  }));
+}
 
 // 每组 9 个顶点 (3 个三角形 × 3)
 const perFace = 9;
@@ -323,7 +434,20 @@ const glowMat = new THREE.MeshBasicMaterial({
 const glowMesh = new THREE.Mesh(glowGeo, glowMat);
 // ── DOM 引用 ──
 const resultChar = document.getElementById('resultChar');
+const resultInfo = document.getElementById('resultInfo');
 const shakeBtn = document.getElementById('shakeBtn');
+
+// 统一显示摇骰结果：地支(五行色) + 数字/五行/三合 小标
+function showResult(num) {
+  const spec = FACE_SPEC[num];
+  const wx = WUXING[spec.wuxing];
+  resultChar.textContent = spec.branch;
+  resultChar.style.color = wx.fill;
+  resultInfo.textContent = `${num}　${spec.wuxing}　${SANHE[spec.sanhe].name}`;
+  void resultChar.offsetWidth;
+  resultChar.classList.add('show');
+  resultInfo.classList.add('show');
+}
 
 scene.add(glowMesh);
 
@@ -338,8 +462,7 @@ scene.add(glowMesh);
   const q = alignQuat(bestI);
   mesh.quaternion.copy(q);
   glowMesh.quaternion.copy(q);
-  resultChar.textContent = LABELS[bestI];
-  resultChar.classList.add('show');
+  showResult(numForFace[bestI]);
 })();
 
 // ── 动画 ──
@@ -353,6 +476,8 @@ function shake() {
   shakeBtn.disabled = true;
   resultChar.classList.remove('show');
   resultChar.textContent = '';
+  resultInfo.classList.remove('show');
+  resultInfo.textContent = '';
 
   // 目标面
   const targetIdx = Math.floor(Math.random() * 12);
@@ -494,9 +619,7 @@ function shake() {
 }
 
 function done(idx) {
-  resultChar.textContent = LABELS[idx];
-  void resultChar.offsetWidth;
-  resultChar.classList.add('show');
+  showResult(numForFace[idx]);
   running = false;
   shakeBtn.disabled = false;
   // 重启循环渲染

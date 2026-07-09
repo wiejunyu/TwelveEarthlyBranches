@@ -1,0 +1,564 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>十二面骰子 · 配置工具</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    font-family: 'Microsoft YaHei', 'PingFang SC', 'SimHei', sans-serif;
+    background: #f5f2ee; color: #3a3a3a; overflow: hidden; user-select: none;
+  }
+  .app { display: flex; height: 100vh; }
+
+  /* ── 左侧预览 ── */
+  .preview {
+    flex: 1; position: relative; min-width: 0;
+    background: radial-gradient(ellipse at center, #f5f2ee 0%, #e2d9cc 100%);
+  }
+  .preview canvas { display: block; cursor: grab; }
+  .preview canvas:active { cursor: grabbing; }
+  .preview-bar {
+    position: absolute; bottom: 18px; left: 50%; transform: translateX(-50%);
+    display: flex; gap: 10px; align-items: center; z-index: 2;
+    background: rgba(255,255,255,.7); padding: 8px 14px; border-radius: 10px;
+    backdrop-filter: blur(6px); box-shadow: 0 2px 16px rgba(0,0,0,.08);
+  }
+  .preview-bar button {
+    border: none; background: linear-gradient(135deg,#5a4a3a,#7a6a5a); color: #fff;
+    padding: 8px 22px; border-radius: 6px; font-size: 15px; cursor: pointer; letter-spacing: 3px;
+  }
+  .preview-bar button:disabled { opacity: .5; cursor: default; }
+  .preview-bar label { font-size: 13px; color: #5a4a3a; display: flex; align-items: center; gap: 4px; }
+  .preview-tip {
+    position: absolute; top: 14px; left: 50%; transform: translateX(-50%);
+    font-size: 12px; color: rgba(90,74,58,.6); letter-spacing: 1px; z-index: 2;
+  }
+
+  /* ── 右侧面板 ── */
+  .panel {
+    width: 400px; flex-shrink: 0; height: 100vh; overflow-y: auto;
+    background: #fff; border-left: 1px solid #e5dfd5; box-shadow: -4px 0 24px rgba(0,0,0,.04);
+  }
+  .panel-head {
+    position: sticky; top: 0; background: #fff; z-index: 5; padding: 16px 18px 12px;
+    border-bottom: 1px solid #eee6d8;
+  }
+  .panel-head h1 { font-size: 17px; letter-spacing: 2px; color: #5a4a3a; }
+  .panel-head .sub { font-size: 12px; color: #999; margin-top: 3px; }
+  .actions { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+  .btn {
+    border: none; padding: 8px 14px; border-radius: 6px; font-size: 13px; cursor: pointer;
+    letter-spacing: 1px; transition: all .2s;
+  }
+  .btn-primary { background: #5a4a3a; color: #fff; }
+  .btn-primary:hover { background: #6a5a4a; }
+  .btn-ghost { background: #f0ebe1; color: #5a4a3a; }
+  .btn-ghost:hover { background: #e8e0d0; }
+  .toast {
+    position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%) translateY(20px);
+    background: #5a4a3a; color: #fff; padding: 10px 22px; border-radius: 8px; font-size: 14px;
+    opacity: 0; transition: all .3s; z-index: 99; pointer-events: none;
+  }
+  .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+  section { padding: 14px 18px; border-bottom: 1px solid #f1ece2; }
+  section h2 {
+    font-size: 13px; color: #8a7a6a; letter-spacing: 2px; margin-bottom: 12px;
+    font-weight: 600; display: flex; align-items: center; gap: 6px;
+  }
+  section h2::before { content: ''; width: 3px; height: 13px; background: #c9a227; border-radius: 2px; }
+
+  .field { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; gap: 10px; }
+  .field label { font-size: 13px; color: #555; flex-shrink: 0; }
+  .field .ctrl { display: flex; align-items: center; gap: 8px; }
+  .val { font-size: 12px; color: #999; min-width: 38px; text-align: right; font-variant-numeric: tabular-nums; }
+
+  input[type=range] { width: 160px; accent-color: #5a4a3a; }
+  input[type=number], input[type=text] {
+    width: 170px; padding: 5px 8px; border: 1px solid #ddd6c8; border-radius: 5px;
+    font-size: 13px; font-family: inherit; color: #3a3a3a; background: #fdfcf9;
+  }
+  input[type=color] { width: 34px; height: 26px; padding: 0; border: 1px solid #ddd6c8; border-radius: 5px; cursor: pointer; background: none; }
+  input[type=checkbox] { width: 16px; height: 16px; accent-color: #5a4a3a; cursor: pointer; }
+  select {
+    padding: 5px 8px; border: 1px solid #ddd6c8; border-radius: 5px; font-size: 13px;
+    font-family: inherit; background: #fdfcf9; color: #3a3a3a; cursor: pointer;
+  }
+
+  .face-row { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; font-size: 13px; }
+  .face-row .num {
+    width: 26px; height: 26px; border-radius: 50%; background: #5a4a3a; color: #fff;
+    display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: bold;
+  }
+  .face-row select { flex: 1; }
+  .face-row .tag { font-size: 11px; color: #999; min-width: 96px; }
+  .face-row .tag b { color: #5a4a3a; }
+
+  .colorgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 14px; }
+  .coloritem { display: flex; align-items: center; justify-content: space-between; font-size: 12px; color: #555; }
+  .coloritem .ctrl { gap: 6px; }
+
+  .hint { font-size: 11px; color: #aaa; margin-top: 4px; line-height: 1.5; }
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="preview" id="preview">
+    <div class="preview-tip">拖动旋转 · 调整右侧参数实时预览</div>
+    <div class="preview-bar">
+      <button id="shakeBtn">🎲 摇一摇预览</button>
+      <label><input type="checkbox" id="autoRot" checked> 自转</label>
+    </div>
+  </div>
+
+  <aside class="panel">
+    <div class="panel-head">
+      <h1>十二面骰子 · 配置工具</h1>
+      <div class="sub">调好参数后导出，把 JSON 发给我即可套用</div>
+      <div class="actions">
+        <button class="btn btn-primary" id="exportBtn">⬇ 导出 JSON</button>
+        <button class="btn btn-ghost" id="copyBtn">📋 复制</button>
+        <button class="btn btn-ghost" id="importBtn">📥 导入</button>
+        <button class="btn btn-ghost" id="resetBtn">↺ 重置</button>
+        <input type="file" id="fileInput" accept="application/json,.json" hidden>
+      </div>
+    </div>
+    <div id="sections"></div>
+  </aside>
+</div>
+<div class="toast" id="toast"></div>
+
+<script type="importmap">{
+  "imports": { "three": "https://unpkg.com/three@0.160.0/build/three.module.js" }
+}</script>
+<script type="module">
+import * as THREE from 'three';
+
+// ── 固定玄学映射：地支 → 五行 / 三合局 ──
+const BRANCHES = ['子','丑','寅','卯','辰','巳','午','未','申','酉','戌','亥'];
+const BRANCH_WUXING = { 子:'水',丑:'土',寅:'木',卯:'木',辰:'土',巳:'火',午:'火',未:'土',申:'金',酉:'金',戌:'土',亥:'水' };
+const BRANCH_SANHE  = { 申:'水',子:'水',辰:'水',寅:'火',午:'火',戌:'火',亥:'木',卯:'木',未:'木',巳:'金',酉:'金',丑:'金' };
+
+// ── 默认配置（与 index.html 当前效果一致）──
+const DEFAULT_CONFIG = {
+  faces: { 1:'子', 2:'巳', 3:'未', 4:'戌', 5:'寅', 6:'卯', 7:'酉', 8:'申', 9:'辰', 10:'丑', 11:'亥', 12:'午' },
+  wuxing: { 木:'#2e8b57', 火:'#c0392b', 土:'#cf9f2e', 金:'#c4c8ce', 水:'#1f3a5f' },
+  sanhe:  { 水:'#1e90ff', 火:'#ff4d3d', 木:'#3ccf5e', 金:'#e6c34a' },
+  sanheBorder: { show:false, width:16 },
+  text: {
+    numSize:0.30, branchSize:0.17, numOffsetY:-0.07, branchOffsetY:0.19,
+    numFont:'"Arial", "Helvetica", sans-serif',
+    branchFont:'"Microsoft YaHei", "PingFang SC", "SimHei", sans-serif',
+  },
+  pentagon: { radius:0.45 },
+  light: { ambient:0.95, main:0.55, fill:0.40 },
+  camera: { fov:40, z:4.5, bg:'#f5f2ee' },
+  material: { metalness:0.10, roughness:0.72, exposure:1.0 },
+  anim: { duration:2200, bounceRadius:0.30, spinMin:3, spinMax:5, hold:140, move:480 },
+  ui: { title:'十二面骰子', subtitle:'⚡ 点击摇一摇 · 卜问天机 ⚡', button:'摇一摇', resultLabel:'☰ 卜得：' },
+};
+let CONFIG = structuredClone(DEFAULT_CONFIG);
+
+// 深拷贝 + 合并导入配置（防止字段缺失）
+function mergeConfig(src) {
+  const base = structuredClone(DEFAULT_CONFIG);
+  for (const k in src) {
+    if (base[k] && typeof base[k] === 'object' && !Array.isArray(base[k])) {
+      base[k] = Object.assign({}, base[k], src[k]);
+    } else { base[k] = src[k]; }
+  }
+  return base;
+}
+
+const textColorFor = hex => {
+  const h = hex.replace('#',''); const r=parseInt(h.slice(0,2),16),g=parseInt(h.slice(2,4),16),b=parseInt(h.slice(4,6),16);
+  return (0.299*r + 0.587*g + 0.114*b) > 140 ? '#3a3a3a' : '#ffffff';
+};
+
+// ── 场景搭建 ──
+const preview = document.getElementById('preview');
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(CONFIG.camera.bg);
+const camera = new THREE.PerspectiveCamera(CONFIG.camera.fov, 1, 0.1, 50);
+camera.position.set(0, 0, CONFIG.camera.z);
+camera.lookAt(0,0,0);
+const renderer = new THREE.WebGLRenderer({ antialias:true });
+renderer.toneMapping = THREE.NeutralToneMapping;
+preview.appendChild(renderer.domElement);
+
+const ambient = new THREE.AmbientLight(0xffffff, CONFIG.light.ambient); scene.add(ambient);
+const mainLight = new THREE.DirectionalLight(0xffffff, CONFIG.light.main); mainLight.position.set(4,6,5); scene.add(mainLight);
+const fillLight = new THREE.DirectionalLight(0xffffff, CONFIG.light.fill); fillLight.position.set(-3,1,-2); scene.add(fillLight);
+
+// ── 十二面体几何 + 面映射（与 index.html 一致）──
+const geo = new THREE.DodecahedronGeometry(1, 0);
+const pos = geo.attributes.position;
+const faceCenters = [], faceNormals = [];
+for (let i = 0; i < pos.count; i += 9) {
+  const verts = [];
+  for (let j = 0; j < 9; j++) {
+    const v = new THREE.Vector3(pos.getX(i+j), pos.getY(i+j), pos.getZ(i+j));
+    if (!verts.some(u => u.distanceTo(v) < 1e-4)) verts.push(v);
+  }
+  const c = new THREE.Vector3(); verts.forEach(v => c.add(v)); c.multiplyScalar(1/verts.length);
+  faceCenters.push(c); faceNormals.push(c.clone().normalize());
+}
+const faceUpDir = [];
+for (let f = 0; f < 12; f++) {
+  const v = new THREE.Vector3(pos.getX(f*9), pos.getY(f*9), pos.getZ(f*9));
+  const toVert = v.clone().sub(faceCenters[f]);
+  const proj = toVert.clone().sub(faceNormals[f].clone().multiplyScalar(toVert.dot(faceNormals[f])));
+  faceUpDir.push(proj.normalize());
+}
+// 物理面 → 数字（相对面=六冲、和=13）
+const opp = [];
+for (let i = 0; i < 12; i++) { let bj=-1,bd=2; for (let j=0;j<12;j++){ if(j===i)continue; const d=faceNormals[i].dot(faceNormals[j]); if(d<bd){bd=d;bj=j;} } opp[i]=bj; }
+const faceVerts = [];
+for (let f = 0; f < 12; f++) { const vs=[]; for(let j=0;j<9;j++){ const v=new THREE.Vector3(pos.getX(f*9+j),pos.getY(f*9+j),pos.getZ(f*9+j)); if(!vs.some(u=>u.distanceTo(v)<1e-4))vs.push(v);} faceVerts.push(vs); }
+const adjacent = (a,b) => { let s=0; for(const va of faceVerts[a])for(const vb of faceVerts[b])if(va.distanceTo(vb)<1e-4)s++; return s>=2; };
+const neighbors = a => { const r=[]; for(let j=0;j<12;j++) if(j!==a&&adjacent(a,j)) r.push(j); return r; };
+const numForFace = new Array(12).fill(0);
+let face1=0,bestZ=-2; for(let i=0;i<12;i++) if(faceNormals[i].z>bestZ){bestZ=faceNormals[i].z;face1=i;}
+numForFace[face1]=1; numForFace[opp[face1]]=12;
+const southRing = neighbors(face1);
+{ const ax=faceNormals[face1]; const upRef=Math.abs(ax.y)<0.9?new THREE.Vector3(0,1,0):new THREE.Vector3(1,0,0);
+  const tx=new THREE.Vector3().crossVectors(ax,upRef).normalize(); const ty=new THREE.Vector3().crossVectors(ax,tx).normalize();
+  southRing.sort((a,b)=>{const ra=faceCenters[a].clone().sub(faceCenters[face1]);const rb=faceCenters[b].clone().sub(faceCenters[face1]);return Math.atan2(ra.dot(ty),ra.dot(tx))-Math.atan2(rb.dot(ty),rb.dot(tx));}); }
+[8,9,10,11,6].forEach((n,k)=>{ numForFace[southRing[k]]=n; numForFace[opp[southRing[k]]]=13-n; });
+
+function alignQuat(faceIdx) {
+  const z = faceNormals[faceIdx], y = faceUpDir[faceIdx];
+  const x = new THREE.Vector3().crossVectors(y, z).normalize();
+  const m = new THREE.Matrix4().set(x.x,y.x,z.x,0, x.y,y.y,z.y,0, x.z,y.z,z.z,0, 0,0,0,1);
+  return new THREE.Quaternion().setFromRotationMatrix(m).invert();
+}
+
+// ── 纹理生成（全部参数读 CONFIG）──
+function createTexture(num) {
+  const branch = CONFIG.faces[num];
+  const wx = CONFIG.wuxing[BRANCH_WUXING[branch]];
+  const border = CONFIG.sanhe[BRANCH_SANHE[branch]];
+  const textClr = textColorFor(wx);
+  const t = CONFIG.text, p = CONFIG.pentagon, sb = CONFIG.sanheBorder;
+  const size = 512, c = document.createElement('canvas'); c.width = c.height = size;
+  const ctx = c.getContext('2d');
+  const cx = size/2, cy = size/2, r = size * p.radius;
+  ctx.fillStyle = wx; ctx.fillRect(0,0,size,size);
+  ctx.beginPath();
+  for (let i = 0; i < 5; i++) {
+    const a = -Math.PI/2 + 2*Math.PI*i/5, px = cx + r*Math.cos(a), py = cy + r*Math.sin(a);
+    i===0 ? ctx.moveTo(px,py) : ctx.lineTo(px,py);
+  }
+  ctx.closePath(); ctx.fill();
+  if (sb.show) { ctx.lineJoin='round'; ctx.lineWidth=sb.width; ctx.strokeStyle=border; ctx.stroke(); }
+  ctx.shadowColor = textClr==='#ffffff' ? 'rgba(0,0,0,0.28)' : 'rgba(255,255,255,0.45)';
+  ctx.shadowBlur = 4; ctx.shadowOffsetX = 1; ctx.shadowOffsetY = 2;
+  ctx.fillStyle = textClr; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.font = `bold ${size*t.numSize}px ${t.numFont}`;
+  ctx.fillText(String(num), cx, cy + size*t.numOffsetY);
+  ctx.font = `bold ${size*t.branchSize}px ${t.branchFont}`;
+  ctx.fillText(branch, cx, cy + size*t.branchOffsetY);
+  const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 4;
+  return tex;
+}
+
+// ── 材质 + UV 重映射 ──
+let materials = [];
+const perFace = 9;
+for (let i = 0; i < 12; i++) geo.addGroup(i*perFace, perFace, i);
+function rebuildMaterials() {
+  const old = materials; materials = [];
+  for (let f = 0; f < 12; f++) {
+    materials.push(new THREE.MeshStandardMaterial({
+      map: createTexture(numForFace[f]),
+      metalness: CONFIG.material.metalness, roughness: CONFIG.material.roughness, side: THREE.FrontSide,
+    }));
+  }
+  mesh.material = materials;
+  old.forEach(m => { if (m.map) m.map.dispose(); m.dispose(); });
+}
+const mesh = new THREE.Mesh(geo, []);
+{
+  const uvs = geo.attributes.uv, array = uvs.array;
+  const pentUV = [];
+  for (let k = 0; k < 5; k++) { const a = -Math.PI/2 + 2*Math.PI*k/5; pentUV.push({ u:0.5+0.45*Math.cos(a), v:0.5+0.45*Math.sin(a) }); }
+  for (let f = 0; f < 12; f++) {
+    const verts = [];
+    for (let j = 0; j < 9; j++) { const v=new THREE.Vector3(pos.getX(f*9+j),pos.getY(f*9+j),pos.getZ(f*9+j)); if(!verts.some(u=>v.distanceTo(u)<0.001)) verts.push(v); }
+    const fc=faceCenters[f], fn=faceNormals[f];
+    const up = Math.abs(fn.y)<0.9 ? new THREE.Vector3(0,1,0) : new THREE.Vector3(1,0,0);
+    const tx=new THREE.Vector3().crossVectors(fn,up).normalize(), ty=new THREE.Vector3().crossVectors(fn,tx).normalize();
+    const proj = verts.map(v=>{const rel=v.clone().sub(fc);return{x:rel.dot(tx),y:rel.dot(ty)};});
+    const order = verts.map((_,i)=>i).sort((a,b)=>Math.atan2(proj[a].y,proj[a].x)-Math.atan2(proj[b].y,proj[b].x));
+    for (let j = 0; j < 9; j++) {
+      const v=new THREE.Vector3(pos.getX(f*9+j),pos.getY(f*9+j),pos.getZ(f*9+j));
+      let vi=-1; for(let m=0;m<5;m++){if(v.distanceTo(verts[m])<0.001){vi=m;break;}}
+      if(vi>=0){const si=order.indexOf(vi);array[(f*9+j)*2]=pentUV[si].u;array[(f*9+j)*2+1]=pentUV[si].v;}
+      else{array[(f*9+j)*2]=0.5;array[(f*9+j)*2+1]=0.5;}
+    }
+  }
+  uvs.needsUpdate = true;
+}
+geo.computeVertexNormals();
+scene.add(mesh);
+rebuildMaterials();
+
+const glowGeo = new THREE.SphereGeometry(1.35, 32, 32);
+const glowMesh = new THREE.Mesh(glowGeo, new THREE.MeshBasicMaterial({ color:0x000000, transparent:true, opacity:0.02, side:THREE.BackSide }));
+scene.add(glowMesh);
+
+// ── 自适应相机 ──
+function resize() {
+  const w = preview.clientWidth, h = preview.clientHeight;
+  camera.aspect = w / h;
+  camera.fov = CONFIG.camera.fov;
+  const aspect = w / h;
+  const minZ = (1 * 2.8) / (2 * Math.tan(camera.fov * Math.PI / 360) * Math.max(aspect, 0.35));
+  camera.position.z = Math.max(CONFIG.camera.z, minZ);
+  camera.updateProjectionMatrix();
+  renderer.setSize(w, h);
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+}
+new ResizeObserver(resize).observe(preview);
+
+// ── 全量应用配置 ──
+function applyConfig() {
+  rebuildMaterials();
+  ambient.intensity = CONFIG.light.ambient;
+  mainLight.intensity = CONFIG.light.main;
+  fillLight.intensity = CONFIG.light.fill;
+  scene.background = new THREE.Color(CONFIG.camera.bg);
+  renderer.toneMappingExposure = CONFIG.material.exposure;
+  resize();
+}
+let pending = false;
+const scheduleUpdate = () => { if (pending) return; pending = true; requestAnimationFrame(() => { pending = false; applyConfig(); refreshFaceTags(); }); };
+
+// ── 控件 schema ──
+const SCHEMA = [
+  { title:'面内容（数字 → 地支，五行/三合自动跟随）', type:'faces' },
+  { title:'五行配色（面底色，文字色自动适配）', type:'colors', items:[
+    ['wuxing.木','木'],['wuxing.火','火'],['wuxing.土','土'],['wuxing.金','金'],['wuxing.水','水'] ]},
+  { title:'三合配色（边框色，需开启边框开关）', type:'colors', items:[
+    ['sanhe.水','水局 申子辰'],['sanhe.火','火局 寅午戌'],['sanhe.木','木局 亥卯未'],['sanhe.金','金局 巳酉丑'] ]},
+  { title:'边框', items:[
+    { k:'sanheBorder.show', label:'显示三合边框', type:'check' },
+    { k:'sanheBorder.width', label:'边框宽度', type:'range', min:2, max:40, step:1 },
+  ]},
+  { title:'文字', items:[
+    { k:'text.numSize', label:'数字字号', type:'range', min:0.10, max:0.50, step:0.01 },
+    { k:'text.branchSize', label:'地支字号', type:'range', min:0.05, max:0.35, step:0.01 },
+    { k:'text.numOffsetY', label:'数字纵向偏移', type:'range', min:-0.30, max:0.30, step:0.01 },
+    { k:'text.branchOffsetY', label:'地支纵向偏移', type:'range', min:-0.20, max:0.40, step:0.01 },
+    { k:'text.numFont', label:'数字字体', type:'text' },
+    { k:'text.branchFont', label:'地支字体', type:'text' },
+  ]},
+  { title:'五边形', items:[
+    { k:'pentagon.radius', label:'五边形半径', type:'range', min:0.20, max:0.50, step:0.01 },
+  ]},
+  { title:'灯光', items:[
+    { k:'light.ambient', label:'环境光', type:'range', min:0, max:2, step:0.05 },
+    { k:'light.main', label:'主光', type:'range', min:0, max:2, step:0.05 },
+    { k:'light.fill', label:'补光', type:'range', min:0, max:2, step:0.05 },
+  ]},
+  { title:'相机与背景', items:[
+    { k:'camera.fov', label:'视野 FOV', type:'range', min:20, max:80, step:1 },
+    { k:'camera.z', label:'相机距离', type:'range', min:3, max:8, step:0.1 },
+    { k:'camera.bg', label:'背景色', type:'color' },
+  ]},
+  { title:'材质', items:[
+    { k:'material.metalness', label:'金属度', type:'range', min:0, max:1, step:0.02 },
+    { k:'material.roughness', label:'粗糙度', type:'range', min:0, max:1, step:0.02 },
+    { k:'material.exposure', label:'曝光', type:'range', min:0.3, max:2, step:0.05 },
+  ]},
+  { title:'动画', items:[
+    { k:'anim.duration', label:'时长 (ms)', type:'number', min:500, max:5000, step:100 },
+    { k:'anim.bounceRadius', label:'弹跳范围', type:'range', min:0.10, max:0.60, step:0.02 },
+    { k:'anim.spinMin', label:'最少自旋圈', type:'number', min:0, max:8, step:1 },
+    { k:'anim.spinMax', label:'最多自旋圈', type:'number', min:0, max:10, step:1 },
+    { k:'anim.hold', label:'落点停留 (ms)', type:'number', min:0, max:800, step:20 },
+    { k:'anim.move', label:'归位时长 (ms)', type:'number', min:0, max:1200, step:20 },
+  ]},
+  { title:'界面文案', items:[
+    { k:'ui.title', label:'标题', type:'text' },
+    { k:'ui.subtitle', label:'副标题', type:'text' },
+    { k:'ui.button', label:'按钮文字', type:'text' },
+    { k:'ui.resultLabel', label:'结果前缀', type:'text' },
+  ]},
+];
+
+const getPath = (obj, p) => p.split('.').reduce((o,k)=>o[k], obj);
+const setPath = (obj, p, v) => { const ks=p.split('.'); let o=obj; for(let i=0;i<ks.length-1;i++)o=o[ks[i]]; o[ks[ks.length-1]]=v; };
+
+// ── 渲染控件 ──
+const sectionsEl = document.getElementById('sections');
+function buildControls() {
+  sectionsEl.innerHTML = '';
+  SCHEMA.forEach(sec => {
+    const s = document.createElement('section');
+    const h = document.createElement('h2'); h.textContent = sec.title; s.appendChild(h);
+    if (sec.type === 'faces') {
+      for (let n = 1; n <= 12; n++) {
+        const row = document.createElement('div'); row.className = 'face-row';
+        const num = document.createElement('div'); num.className = 'num'; num.textContent = n;
+        const sel = document.createElement('select');
+        BRANCHES.forEach(b => { const o=document.createElement('option'); o.value=b; o.textContent=b; if(CONFIG.faces[n]===b) o.selected=true; sel.appendChild(o); });
+        const tag = document.createElement('span'); tag.className = 'tag'; tag.dataset.face = n;
+        sel.addEventListener('change', () => { CONFIG.faces[n] = sel.value; scheduleUpdate(); });
+        row.append(num, sel, tag); s.appendChild(row);
+      }
+    } else if (sec.type === 'colors') {
+      const grid = document.createElement('div'); grid.className = 'colorgrid';
+      sec.items.forEach(([path,label]) => {
+        const it = document.createElement('div'); it.className = 'coloritem';
+        const lab = document.createElement('label'); lab.textContent = label;
+        const ctrl = document.createElement('div'); ctrl.className = 'ctrl';
+        const inp = document.createElement('input'); inp.type='color'; inp.value = getPath(CONFIG, path);
+        const hex = document.createElement('span'); hex.className='val'; hex.textContent = getPath(CONFIG,path);
+        inp.addEventListener('input', () => { setPath(CONFIG, path, inp.value); hex.textContent = inp.value; scheduleUpdate(); });
+        ctrl.append(inp, hex); it.append(lab, ctrl); grid.appendChild(it);
+      });
+      s.appendChild(grid);
+    } else {
+      sec.items.forEach(it => {
+        const f = document.createElement('div'); f.className = 'field';
+        const lab = document.createElement('label'); lab.textContent = it.label;
+        const ctrl = document.createElement('div'); ctrl.className = 'ctrl';
+        if (it.type === 'range' || it.type === 'number') {
+          const inp = document.createElement('input'); inp.type = it.type;
+          inp.min = it.min; inp.max = it.max; inp.step = it.step; inp.value = getPath(CONFIG, it.k);
+          const val = document.createElement('span'); val.className='val'; val.textContent = getPath(CONFIG, it.k);
+          inp.addEventListener('input', () => { setPath(CONFIG, it.k, parseFloat(inp.value)); val.textContent = inp.value; scheduleUpdate(); });
+          ctrl.append(inp, val);
+        } else if (it.type === 'color') {
+          const inp = document.createElement('input'); inp.type='color'; inp.value = getPath(CONFIG, it.k);
+          inp.addEventListener('input', () => { setPath(CONFIG, it.k, inp.value); scheduleUpdate(); });
+          ctrl.appendChild(inp);
+        } else if (it.type === 'check') {
+          const inp = document.createElement('input'); inp.type='checkbox'; inp.checked = !!getPath(CONFIG, it.k);
+          inp.addEventListener('change', () => { setPath(CONFIG, it.k, inp.checked); scheduleUpdate(); });
+          ctrl.appendChild(inp);
+        } else { // text
+          const inp = document.createElement('input'); inp.type='text'; inp.value = getPath(CONFIG, it.k);
+          inp.addEventListener('input', () => { setPath(CONFIG, it.k, inp.value); scheduleUpdate(); });
+          ctrl.appendChild(inp);
+        }
+        f.append(lab, ctrl); s.appendChild(f);
+      });
+    }
+    sectionsEl.appendChild(s);
+  });
+  refreshFaceTags();
+}
+function refreshFaceTags() {
+  document.querySelectorAll('.tag[data-face]').forEach(t => {
+    const n = +t.dataset.face, b = CONFIG.faces[n];
+    t.innerHTML = `<b>${BRANCH_WUXING[b]}</b> · ${BRANCH_SANHE[b]}局`;
+  });
+}
+
+// ── 导出 / 导入 / 重置 ──
+const toast = document.getElementById('toast');
+function showToast(msg) { toast.textContent = msg; toast.classList.add('show'); setTimeout(()=>toast.classList.remove('show'), 1600); }
+function exportJSON() {
+  const json = JSON.stringify(CONFIG, null, 2);
+  const blob = new Blob([json], { type:'application/json' });
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = '骰子配置.json'; a.click();
+  showToast('已导出 骰子配置.json');
+}
+function copyJSON() {
+  navigator.clipboard.writeText(JSON.stringify(CONFIG, null, 2)).then(()=>showToast('配置已复制到剪贴板'));
+}
+function loadConfig(cfg) {
+  CONFIG = mergeConfig(cfg);
+  buildControls(); applyConfig();
+}
+document.getElementById('exportBtn').addEventListener('click', exportJSON);
+document.getElementById('copyBtn').addEventListener('click', copyJSON);
+document.getElementById('resetBtn').addEventListener('click', () => { loadConfig(structuredClone(DEFAULT_CONFIG)); showToast('已重置为默认'); });
+document.getElementById('importBtn').addEventListener('click', () => document.getElementById('fileInput').click());
+document.getElementById('fileInput').addEventListener('change', e => {
+  const f = e.target.files[0]; if (!f) return;
+  const r = new FileReader();
+  r.onload = () => { try { loadConfig(JSON.parse(r.result)); showToast('导入成功'); } catch(err){ showToast('导入失败：JSON 格式错误'); } };
+  r.readAsText(f);
+});
+
+// ── 预览交互：拖动旋转 + 自转 + 摇骰 ──
+let isDragging = false, lastX = 0, lastY = 0, running = false, animId = null;
+let autoRot = true;
+const canvas = renderer.domElement;
+canvas.addEventListener('pointerdown', e => { isDragging = true; lastX = e.clientX; lastY = e.clientY; canvas.setPointerCapture(e.pointerId); });
+canvas.addEventListener('pointermove', e => {
+  if (!isDragging) return;
+  const dx = e.clientX - lastX, dy = e.clientY - lastY; lastX = e.clientX; lastY = e.clientY;
+  const qy = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,1,0), dx*0.01);
+  const qx = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1,0,0), dy*0.01);
+  mesh.quaternion.premultiply(qy).premultiply(qx); glowMesh.quaternion.copy(mesh.quaternion);
+});
+canvas.addEventListener('pointerup', e => { isDragging = false; });
+document.getElementById('autoRot').addEventListener('change', e => autoRot = e.target.checked);
+
+// 摇骰（复用 index.html 动画，参数读 CONFIG.anim）
+const shakeBtn = document.getElementById('shakeBtn');
+function shake() {
+  if (running) return;
+  running = true; shakeBtn.disabled = true;
+  const A = CONFIG.anim;
+  const targetIdx = Math.floor(Math.random() * 12);
+  const targetQuat = alignQuat(targetIdx);
+  const startQuat = mesh.quaternion.clone();
+  const spinAxis = new THREE.Vector3(Math.random()-0.5, Math.random()-0.5, Math.random()-0.5).normalize();
+  const totalSpin = (A.spinMin + Math.random()*(A.spinMax - A.spinMin + 1)) * Math.PI * 2;
+  const DUR = A.duration, t0 = performance.now();
+  const vfov = camera.fov * Math.PI/180;
+  const visH = 2 * Math.tan(vfov/2) * Math.abs(camera.position.z);
+  const px2world = visH / preview.clientHeight;
+  const radius = Math.min(preview.clientWidth, preview.clientHeight) * A.bounceRadius * px2world;
+  const maxStep = radius * 0.7;
+  const pts = [{x:0,y:0},{x:0,y:0}]; let prev={x:0,y:0};
+  const count = 5 + (Math.random()*3|0);
+  for (let i=0;i<count;i++){ const ang=Math.random()*Math.PI*2; const step=maxStep*(0.5+Math.random()*0.5); let nx=prev.x+Math.cos(ang)*step, ny=prev.y+Math.sin(ang)*step; const r=Math.hypot(nx,ny); if(r>radius){nx=nx/r*radius;ny=ny/r*radius;} pts.push({x:nx,y:ny}); prev={x:nx,y:ny}; }
+  pts.push({x:prev.x,y:prev.y},{x:prev.x,y:prev.y});
+  const lp = (a,b,s)=>({x:a.x+(b.x-a.x)*s,y:a.y+(b.y-a.y)*s});
+  function cr(p0,p1,p2,p3,t){ const A2=0.5,d01=Math.max(Math.hypot(p1.x-p0.x,p1.y-p0.y)**A2,1e-6),d12=Math.max(Math.hypot(p2.x-p1.x,p2.y-p1.y)**A2,1e-6),d23=Math.max(Math.hypot(p3.x-p2.x,p3.y-p2.y)**A2,1e-6),t1=d01,t2=d01+d12,t3=d01+d12+d23,tt=t1+(t2-t1)*t,A1=lp(p0,p1,tt/t1),A2b=lp(p1,p2,(tt-t1)/(t2-t1)),A3=lp(p2,p3,(tt-t2)/(t3-t2)),B1=lp(A1,A2b,tt/t2),B2=lp(A2b,A3,(tt-t1)/(t3-t1)); return lp(B1,B2,(tt-t1)/(t2-t1)); }
+  function sample(t){ const PC=pts.length,segs=PC-3,raw=Math.max(0,t)*segs,seg=Math.min(Math.floor(raw),segs-1),f=Math.min(Math.max(0,raw-seg),1); return cr(pts[seg],pts[seg+1],pts[seg+2],pts[Math.min(PC-1,seg+3)],f); }
+  function ease(t){const c1=1.5,c3=c1+1;return 1+c3*(t-1)**3+c1*(t-1)**2;}
+  function mixEase(t){ if(t<0.65){const p=t/0.65;return 0.72*(p<0.5?2*p*p:-1+(4-2*p)*p);} const p=(t-0.65)/0.35; return 0.72+0.28*ease(p); }
+  function frame(now){
+    const el = Math.min((now-t0)/DUR,1), et = mixEase(el);
+    const p = sample(et); mesh.position.set(p.x,p.y,0); glowMesh.position.copy(mesh.position);
+    const aq = new THREE.Quaternion().slerpQuaternions(startQuat, targetQuat, Math.pow(el,2.5));
+    const sq = new THREE.Quaternion().setFromAxisAngle(spinAxis, totalSpin*(1-Math.pow(1-el,3)));
+    mesh.quaternion.copy(sq).multiply(aq); glowMesh.quaternion.copy(mesh.quaternion);
+    if (el < 1) animId = requestAnimationFrame(frame);
+    else {
+      mesh.quaternion.copy(targetQuat); glowMesh.quaternion.copy(targetQuat);
+      const from = mesh.position.clone(), ZERO = new THREE.Vector3(0,0,0), st0 = performance.now();
+      function settle(now){
+        const dt = now - st0;
+        if (dt < A.hold) {}
+        else { const p2=Math.min((dt-A.hold)/A.move,1), ep=1-Math.pow(1-p2,3); mesh.position.lerpVectors(from,ZERO,ep); glowMesh.position.copy(mesh.position); if(p2>=1){mesh.position.copy(ZERO);glowMesh.position.copy(ZERO);running=false;shakeBtn.disabled=false;return;} }
+        animId = requestAnimationFrame(settle);
+      }
+      animId = requestAnimationFrame(settle);
+    }
+  }
+  animId = requestAnimationFrame(frame);
+}
+shakeBtn.addEventListener('click', shake);
+
+// ── 渲染循环 ──
+(function loop(){ requestAnimationFrame(loop); if(!running && autoRot && !isDragging){ const q=new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,1,0),0.004); mesh.quaternion.premultiply(q); glowMesh.quaternion.copy(mesh.quaternion); } renderer.render(scene,camera); })();
+
+// ── 初始化 ──
+buildControls();
+resize();
+applyConfig();
+console.log('🎲 配置工具已加载');
+</script>
+</body>
+</html>
